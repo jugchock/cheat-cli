@@ -1,0 +1,31 @@
+{
+  "name": "cheat-cli",
+  "version": "1.0.0",
+  "description": "Command line cheatsheets",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jugchock/cheat-cli.git"
+  },
+  "keywords": [
+    "cheat",
+    "sheet",
+    "cli"
+  ],
+  "author": "Jugchock",
+  "license": "MIT",
+  "bin": {
+    "cheat": "bin/cheat"
+  },
+  "bugs": {
+    "url": "https://github.com/jugchock/cheat-cli/issues"
+  },
+  "homepage": "https://github.com/jugchock/cheat-cli#readme",
+  "dependencies": {
+    "chalk": "^2.4.1",
+    "yargs": "^12.0.4"
+  }
+}
