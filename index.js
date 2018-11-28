@@ -4,29 +4,66 @@ require('./polyfills');
 
 const chalk = require('chalk');
 const fs = require('fs');
+const glob = require('glob');
+const inquirer = require('inquirer');
 const path = require('path');
 
 module.exports = function () {
   require('yargs')
-    .command('* <sheet>', 'print cheat sheet', {}, print)
-    .command('add <path> <value>', 'add a sheet or cheat to a sheet', {}, add)
-    .command('remove-sheet <sheet>', 'remove a cheat sheet', {}, removeSheet)
-    .command('remove <path>', 'remove cheat from a sheet', {}, remove)
+    .command('* [sheet]', 'print cheat sheet', {}, argv => print(argv.sheet))
+    .command('add <path> <value>', 'add a sheet or cheat to a sheet', {}, argv => add(argv.path, argv.value))
+    .command('remove-sheet <sheet>', 'remove a cheat sheet', {}, argv => removeSheet(argv.sheet))
+    .command('remove <path>', 'remove cheat from a sheet', {}, argv => remove(argv.path))
+    .command('find <sheet> <search>', 'find a cheat in a sheet', {}, argv => findCheat(argv.sheet, argv.search))
+    .help()
     .argv;
 }
 
-function print(argv) {
-  printSheet(argv.sheet)
-    .then(() => process.exit(0))
-    .catch(err => console.log(err));
+function listSheets() {
+  return new Promise((resolve, reject) => {
+    glob(path.join(__dirname, 'sheets', '*.json'), (err, files) => {
+      if (err) {
+        reject(err);
+      } else {
+        const fileNames = files.map(file => path.basename(file).replace('.json', ''));
+        console.log('\n' + fileNames.join('\n') + '\n');
+        resolve();
+      }
+    });
+  });
 }
 
-function add(argv) {
-  const pathParts = argv.path.split('/');
+function print(sheet) {
+  if (!sheet) {
+    listSheets()
+      .then(() => process.exit(0))
+      .catch(err => {
+        console.log(err);
+        process.exit(1);
+      });
+
+    return;
+  }
+
+  printSheet(sheet)
+    .then(() => process.exit(0))
+    .catch(err => {
+      if (err === 'sheet not found') {
+        process.exit(0);
+        return;
+      }
+
+      console.log(err);
+      process.exit(1);
+    });
+}
+
+function add(path, value) {
+  const pathParts = path.split('/');
   const sheetName = pathParts[0];
 
   ensureSheetExists(sheetName)
-    .then(() => pathParts[1] ? addToSheet(sheetName, pathParts[1], argv.value) : null)
+    .then(() => pathParts[1] ? addToSheet(sheetName, pathParts[1], value) : null)
     .then(() => printSheet(sheetName))
     .then(() => process.exit(0))
     .catch(err => {
@@ -35,9 +72,9 @@ function add(argv) {
     });
 }
 
-function removeSheet(argv) {
-  deleteSheet(argv.sheet)
-    .then(() => console.log(`${argv.sheet} removed`))
+function removeSheet(sheet) {
+  deleteSheet(sheet)
+    .then(() => console.log(`${sheet} removed`))
     .then(() => process.exit(0))
     .catch(err => {
       console.error(err);
@@ -45,8 +82,8 @@ function removeSheet(argv) {
     });
 }
 
-function remove(argv) {
-  const pathParts = argv.path.split('/');
+function remove(path) {
+  const pathParts = path.split('/');
 
   if (pathParts.length < 2) {
     console.error('expected path in the form of {sheet}/{cheat-name}, use remove-sheet to remove an entire sheet');
@@ -57,6 +94,17 @@ function remove(argv) {
   const sheetName = pathParts[0];
   removeFromSheet(sheetName, pathParts[1])
     .then(() => printSheet(sheetName))
+    .then(() => process.exit(0))
+    .catch(err => {
+      console.error(err);
+      process.exit(1);
+    });
+}
+
+function findCheat(sheetName, search) {
+  readSheet(sheetName)
+    .then(cheatData => filterCheats(cheatData, search))
+    .then(filteredObject => printCheatData(filteredObject))
     .then(() => process.exit(0))
     .catch(err => {
       console.error(err);
@@ -86,33 +134,55 @@ function sheetExists(sheetName) {
 
 function printSheet(sheetName) {
   return readSheet(sheetName)
-    .then(cheatData => {
-      const keys = Object.keys(cheatData);
-      const keyLength = keys.reduce((maxLength, key) => Math.max(maxLength, key.length), 0);
-      const padAmount = keyLength + 2;
+    .catch(err => {
+      if (err.code === 'ENOENT') {
+        return inquirer
+          .prompt({
+            default: false,
+            message: `${sheetName} not found, create it?`,
+            name: 'shouldCreate',
+            type: 'confirm',
+          })
+          .then(answers => {
+            if (answers.shouldCreate) {
+              return;
+            }
 
-      console.log('');
-      keys.forEach(key => {
-        let keyParts = key.split('-');
-        keyParts = keyParts.map(keyPart => {
-          return {
-            text: keyPart,
-            color: colorizeKeyPart(keyPart)
-          };
-        });
-        console.log(
-          chalk[keyParts[0].color](keyParts[0].text) +
-          (keyParts[1] ? chalk.red(' ') + chalk[keyParts[1].color](keyParts[1].text) : '') +
-          (keyParts[2] ? chalk.red(' ') + chalk[keyParts[2].color](keyParts[2].text) : '') +
-          (keyParts[3] ? chalk.red(' ') + chalk[keyParts[3].color](keyParts[3].text) : '') +
-          (keyParts[4] ? chalk.red(' ') + chalk[keyParts[4].color](keyParts[4].text) : '') +
-          (keyParts[5] ? chalk.red(' ') + chalk[keyParts[5].color](keyParts[5].text) : '') +
-          (keyParts[6] ? chalk.red(' ') + chalk[keyParts[6].color](keyParts[6].text) : '') +
-          ''.padEnd(padAmount - key.length) + cheatData[key]
-        );
-      });
-      console.log('');
+            throw 'sheet not found';
+          });
+      }
+
+      throw err;
+    })
+    .then(cheatData => printCheatData(cheatData));
+}
+
+function printCheatData(cheatData) {
+  const keys = Object.keys(cheatData);
+  const keyLength = keys.reduce((maxLength, key) => Math.max(maxLength, key.length), 0);
+  const padAmount = keyLength + 2;
+
+  console.log('');
+  keys.forEach(key => {
+    let keyParts = key.split('-');
+    keyParts = keyParts.map(keyPart => {
+      return {
+        text: keyPart,
+        color: colorizeKeyPart(keyPart)
+      };
     });
+    console.log(
+      chalk[keyParts[0].color](keyParts[0].text) +
+      (keyParts[1] ? chalk.red(' ') + chalk[keyParts[1].color](keyParts[1].text) : '') +
+      (keyParts[2] ? chalk.red(' ') + chalk[keyParts[2].color](keyParts[2].text) : '') +
+      (keyParts[3] ? chalk.red(' ') + chalk[keyParts[3].color](keyParts[3].text) : '') +
+      (keyParts[4] ? chalk.red(' ') + chalk[keyParts[4].color](keyParts[4].text) : '') +
+      (keyParts[5] ? chalk.red(' ') + chalk[keyParts[5].color](keyParts[5].text) : '') +
+      (keyParts[6] ? chalk.red(' ') + chalk[keyParts[6].color](keyParts[6].text) : '') +
+      ''.padEnd(padAmount - key.length) + cheatData[key]
+    );
+  });
+  console.log('');
 }
 
 function colorizeKeyPart(keyPart) {
@@ -138,6 +208,7 @@ function colorizeKeyPart(keyPart) {
     case 'left':
     case 'right':
     case 'delete':
+    case 'enter':
       return 'cyan';
     default:
       return 'white';
@@ -213,29 +284,15 @@ function deleteSheet(sheetName) {
   });
 }
 
-function transformKey(key) {
-  return key.split('-')
-    .map(part => {
-      switch (part) {
-        case 'cmd':
-          return '⌘';
-        case 'ctrl':
-        case 'control':
-          return '⌃';
-        case 'alt':
-        case 'option':
-          return '⌥';
-        case 'shift':
-        case 'shft':
-          return '⇧';
-        case 'space':
-        case '[space]':
-          return '[space]';
-        default:
-          return part;
-      }
-    })
-    .join('');
+function filterCheats(cheatData, search) {
+  const searchLower = search.toLowerCase();
+  return Object.keys(cheatData).reduce((printObject, key) => {
+    const cheatValue = cheatData[key];
+    if (cheatValue.toLowerCase().includes(searchLower)) {
+      printObject[key] = cheatValue;
+    }
+    return printObject;
+  }, {});
 }
 
 function getSheetPath(sheetName) {
