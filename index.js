@@ -22,6 +22,11 @@ module.exports = function () {
     .argv;
 }
 
+module.exports.test = {
+  list: () => listSheets(),
+  print: sheet => print(sheet)
+};
+
 function listSheets() {
   return new Promise((resolve, reject) => {
     glob(path.join(__dirname, 'sheets', '*.json'), (err, files) => {
@@ -210,7 +215,7 @@ function printCheatData(cheatData) {
 
   console.log('');
   keys.forEach(key => {
-    let keyParts = key.split('-');
+    let keyParts = normalizeKeyParts(key.split('-'));
     keyParts = keyParts.map(keyPart => {
       return {
         text: keyPart,
@@ -229,6 +234,23 @@ function printCheatData(cheatData) {
     );
   });
   console.log('');
+}
+
+function normalizeKeyParts(keyParts) {
+  const normalizedKeyParts = [];
+
+  for (let i = 0, len = keyParts.length; i < len; i++) {
+    const keyPart = keyParts[i];
+
+    if (keyPart !== '') {
+      normalizedKeyParts.push(keyPart);
+    } else if (keyParts[i + 1] === '') {
+      normalizedKeyParts.push('-');
+      i++;
+    }
+  }
+
+  return normalizedKeyParts;
 }
 
 function colorizeKeyPart(keyPart) {
