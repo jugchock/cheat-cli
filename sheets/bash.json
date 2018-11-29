@@ -1,1 +1,1 @@
-{"ctrl-a":"Jump to beginning","ctrl-e":"Jump to end","ctrl-b":"Back one character","ctrl-f":"Forward one character"}
+{"ctrl-a":"Jump to beginning","ctrl-e":"Jump to end","ctrl-b":"Back one character","ctrl-f":"Forward one character","ctrl-left":"Back one word","ctrl-right":"Forward one word","ctrl-u":"Cut everything preceding cursor","ctrl-k":"Cut everything after cursor","ctrl-y":"Paste","ctrl-r":"Search history","ctrl-l":"Clear"}

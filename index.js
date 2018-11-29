@@ -8,11 +8,14 @@ const glob = require('glob');
 const inquirer = require('inquirer');
 const path = require('path');
 
+const ERR_DO_NOT_DELETE_SHEET = 'do not delete sheet';
+const ERR_DO_NOT_CREATE_SHEET = 'do not create sheet';
+const ERR_SHEET_NOT_FOUND = 'sheet not found';
+
 module.exports = function () {
   require('yargs')
     .command('* [sheet]', 'print cheat sheet', {}, argv => print(argv.sheet))
     .command('add <path> <value>', 'add a sheet or cheat to a sheet', {}, argv => add(argv.path, argv.value))
-    .command('remove-sheet <sheet>', 'remove a cheat sheet', {}, argv => removeSheet(argv.sheet))
     .command('remove <path>', 'remove cheat from a sheet', {}, argv => remove(argv.path))
     .command('find <sheet> <search>', 'find a cheat in a sheet', {}, argv => findCheat(argv.sheet, argv.search))
     .help()
@@ -48,12 +51,12 @@ function print(sheet) {
   printSheet(sheet)
     .then(() => process.exit(0))
     .catch(err => {
-      if (err === 'sheet not found') {
-        process.exit(0);
-        return;
+      if (err.code === ERR_SHEET_NOT_FOUND) {
+        console.log(`Could not find sheet "${sheet}"`);
+      } else {
+        console.log(err);
       }
 
-      console.log(err);
       process.exit(1);
     });
 }
@@ -67,17 +70,60 @@ function add(path, value) {
     .then(() => printSheet(sheetName))
     .then(() => process.exit(0))
     .catch(err => {
-      console.error(err);
+      if (err === ERR_DO_NOT_CREATE_SHEET) {
+        process.exit(0);
+        return;
+      }
+
+      if (err === ERR_SHEET_NOT_FOUND) {
+        console.log(`Could not find sheet: "${sheetName}"`);
+      } else {
+        console.error(err);
+      }
+
       process.exit(1);
     });
 }
 
 function removeSheet(sheet) {
-  deleteSheet(sheet)
-    .then(() => console.log(`${sheet} removed`))
+  sheetExists(sheet)
+    .then(exists => {
+      if (!exists) {
+        throw ERR_SHEET_NOT_FOUND;
+      }
+
+      return;
+    })
+    .then(() => {
+      return inquirer
+        .prompt({
+          default: false,
+          message: `Delete ${sheet}?`,
+          name: 'shouldDelete',
+          type: 'confirm',
+        });
+    })
+    .then(answers => {
+      if (answers.shouldDelete) {
+        return deleteSheet(sheet);
+      }
+
+      throw ERR_DO_NOT_DELETE_SHEET;
+    })
+    .then(() => console.log(`${sheet} deleted`))
     .then(() => process.exit(0))
     .catch(err => {
-      console.error(err);
+      if (err === ERR_DO_NOT_DELETE_SHEET) {
+        process.exit(0);
+        return;
+      }
+
+      if (err === ERR_SHEET_NOT_FOUND) {
+        console.log(`Could not find sheet: "${sheet}"`);
+      } else {
+        console.error(err);
+      }
+
       process.exit(1);
     });
 }
@@ -86,8 +132,7 @@ function remove(path) {
   const pathParts = path.split('/');
 
   if (pathParts.length < 2) {
-    console.error('expected path in the form of {sheet}/{cheat-name}, use remove-sheet to remove an entire sheet');
-    process.exit(1);
+    removeSheet(pathParts[0]);
     return;
   }
 
@@ -119,7 +164,21 @@ function ensureSheetExists(sheetName) {
         return Promise.resolve();
       }
 
-      return writeSheet(sheetName, {});
+      return inquirer
+        .prompt({
+          default: false,
+          message: `${sheetName} not found, create it?`,
+          name: 'shouldCreate',
+          type: 'confirm',
+        })
+        .then(answers => {
+          if (answers.shouldCreate) {
+            writeSheet(sheetName, {});
+            return;
+          }
+
+          throw ERR_DO_NOT_CREATE_SHEET;
+        });
     });
 }
 
@@ -133,26 +192,13 @@ function sheetExists(sheetName) {
 }
 
 function printSheet(sheetName) {
-  return readSheet(sheetName)
-    .catch(err => {
-      if (err.code === 'ENOENT') {
-        return inquirer
-          .prompt({
-            default: false,
-            message: `${sheetName} not found, create it?`,
-            name: 'shouldCreate',
-            type: 'confirm',
-          })
-          .then(answers => {
-            if (answers.shouldCreate) {
-              return;
-            }
-
-            throw 'sheet not found';
-          });
+  return sheetExists(sheetName)
+    .then(exists => {
+      if (!exists) {
+        throw ERR_SHEET_NOT_FOUND;
       }
 
-      throw err;
+      return readSheet(sheetName)
     })
     .then(cheatData => printCheatData(cheatData));
 }
